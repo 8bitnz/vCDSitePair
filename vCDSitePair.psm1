@@ -180,7 +180,79 @@ API calls are not implemented in earlier versions.
     }
 }
 
+Function Remove-vCDPairSites(
+    [Parameter(Mandatory=$true)][uri]$siteAuri,
+    [Parameter(Mandatory=$true)][uri]$siteBuri,
+    [Boolean]$WhatIf = $true
+)
+{
+<#
+.SYNOPSIS
+Deletes a vCloud Director pairing between 2 vCD instances.
+.DESCRIPTION
+Deletes system-level pairing between two vCloud Director sites.
+.PARAMETER siteAuri
+The URI of the api endpoint for the first site to be removed.
+.PARAMETER siteBuri
+The URI of the api endpoint for the second site to be removed.
+.PARAMETER WhatIf
+A flag that determines whether to actually perform the site pairing removal or just
+return information on what would be done.
+.OUTPUTS
+The results of the removal attempt from Site A -> Site B and from Site B ->
+Site A.
+.EXAMPLE
+Remove-vCDPairSites -siteAuri 'sitea.api.mycloud.com' -siteBuri 'siteb.api.mycloud.com' -WhatIf $false
+.NOTES
+Requires the 'Invoke-vCloud' module to be available in your current session to
+function. You must have an existing PowerCLI connection to vCloud Director
+(Connect-CIServer) to both sites in your current PowerShell session for this to
+suceed. Will only function against vCloud Director versions 9 and later as the
+API calls are not implemented in earlier versions.
+#>
+    if ($WhatIf) { 
+        Write-Host -ForegroundColor Green 'Running in information mode only - no API changes will be made unless you run with -WhatIf $false'
+    } else {
+        Write-Host -ForegroundColor Green 'Running in implementation mode, API changes will be committed'
+    }
+    [xml]$sALAD = Invoke-vCloud -URI "https://$siteAuri/api/site/associations/localAssociationData" -ApiVersion '29.0'
+    $sAName = $sALAD.SiteAssociationMember.SiteName
+    Write-Host -ForegroundColor Green "Site A returned site ID as: $($sALAD.SiteAssociationMember.SiteId)"
+    Write-Host -ForegroundColor Green "Site A returned site name as: $sAName"
+
+    [xml]$sBLAD = Invoke-vCloud -URI "https://$siteBuri/api/site/associations/localAssociationData" -ApiVersion '29.0'
+    $sBName = $sBLAD.SiteAssociationMember.SiteName
+    Write-Host -ForegroundColor Green "Site B returned site ID as: $($sBLAD.SiteAssociationMember.SiteId)"
+    Write-Host -ForegroundColor Green "Site B returned site name as: $sBName"
+
+    If (!$sAName -or !$sBName) {
+        Write-Host -ForegroundColor Red "Site name is missing for one or more sites, configure with Set-vCloudSiteName before using vCD-PairSites, exiting"
+        return
+    }
+
+    If ($sALAD.SiteAssociationMember.SiteId -eq $sBLAD.SiteAssociationMember.SiteID) {
+        Write-Host -ForegroundColor Red "Site Id's for site A and site B are identical, vCD-PairSites must be used between different vCD Cells, exiting"
+        return
+    }
+
+    if (!$WhatIf) {
+        Write-Host -ForegroundColor Green "Removing pairing from $sAName (Site A) with $sBName (Site B)"
+        $URI = $sBLAD.SiteAssociationMember.href
+        Write-Host "Got URI $URI"
+        $result = Invoke-vCloud -URI "$URI" -Method 'DELETE' -ApiVersion '29.0' -WaitForTask $true
+        Write-Host "Returned Result = $result"
+        Write-Host -ForegroundColor Green "Removing pairing from $sBName (Site B) with $sAName (Site A)"
+        $URI = $sALAD.SiteAssociationMember.href
+        Write-Host "Got URI $URI"
+        $result = Invoke-vCloud -URI "$URI" -Method 'DELETE' -ApiVersion '29.0' -WaitForTask $true
+        Write-Host "Returned Result = $result"
+    } else {
+        Write-Host -ForegroundColor Yellow "Not performing site removal as running in information mode"
+    }
+}
+
 Export-ModuleMember -Function 'Get-vCloudSiteName'
 Export-ModuleMember -Function 'Set-vCloudSiteName'
 Export-ModuleMember -Function 'Get-vCloudSiteAssociations'
 Export-ModuleMember -Function 'Invoke-vCDPairSites'
+Export-ModuleMember -Function 'Remove-vCDPairSites'
